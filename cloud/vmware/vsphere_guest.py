@@ -350,7 +350,7 @@ def add_cdrom(module, s, config_target, config, devices, default_devs, type="cli
         devices.append(cd_spec)
 
 
-def add_nic(module, s, nfmor, config, devices, nic_type="vmxnet3", network_name="VM Network", network_type="standard"):
+def add_nic(module, s, nfmor, config, devices, nic_type="vmxnet3", network_name="VM Network", network_type="standard", mac_address=""):
     # add a NIC
     # Different network card types are: "VirtualE1000",
     # "VirtualE1000e","VirtualPCNet32", "VirtualVmxnet", "VirtualNmxnet2",
@@ -399,8 +399,11 @@ def add_nic(module, s, nfmor, config, devices, nic_type="vmxnet3", network_name=
         module.fail_json(
             msg="Error adding nic backing to vm spec. No network type of:"
             " %s" % (network_type))
-
-    nic_ctlr.set_element_addressType("generated")
+    if mac_address != "":
+        nic_ctlr.set_element_addressType("manual")
+        nic_ctlr.set_element_macAddress(mac_address)
+    else:
+        nic_ctlr.set_element_addressType("generated")
     nic_ctlr.set_element_backing(nic_backing)
     nic_ctlr.set_element_key(4)
     nic_spec.set_element_device(nic_ctlr)
@@ -939,9 +942,14 @@ def create_vm(vsphere_client, module, esxi, resource_pool, cluster_name, guest, 
                 module.fail_json(
                     msg="Error on %s definition. network_type needs to be "
                     " specified." % nic)
+            if network_type == 'standard':
+                try:
+                    mac_address = vm_nic[nic]['mac_address']
+                except KeyError:
+                    pass
             # Add the nic to the VM spec.
             add_nic(module, vsphere_client, nfmor, config, devices,
-                    nictype, network, network_type)
+                    nictype, network, network_type, mac_address)
 
     config.set_element_deviceChange(devices)
     create_vm_request.set_element_config(config)
