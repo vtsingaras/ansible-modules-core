@@ -562,6 +562,7 @@ def reconfigure_vm(vsphere_client, vm, module, esxi, resource_pool, cluster_name
     spec = None
     changed = False
     changes = {}
+    device_config_specs = []
     request = VI.ReconfigVM_TaskRequestMsg()
     shutdown = False
 
@@ -630,6 +631,64 @@ def reconfigure_vm(vsphere_client, vm, module, esxi, resource_pool, cluster_name
 
             changes['cpu'] = vm_hardware['num_cpus']
 
+    # ====(Config Devices )====#
+    device_config_specs = []
+    # ====(Config Network )====#
+    if vm_nic:
+        spec = spec_singleton(spec, request, vm)
+        datacenter = esxi['datacenter']
+        esxi_hostname = esxi['hostname']
+        # Datacenter managed object reference
+        dclist = [k for k,
+                 v in vsphere_client.get_datacenters().items() if v == datacenter]
+        if dclist:
+            dcmor=dclist[0]
+        else:
+            vsphere_client.disconnect()
+            module.fail_json(msg="Cannot find datacenter named: %s" % datacenter)
+
+        dcprops = VIProperty(vsphere_client, dcmor)
+        # networkFolder managed object reference
+        nfmor = dcprops.networkFolder._obj
+        # remove all interfaces
+        for device in vm.properties.config.hardware.device:
+            if device._type in ["VirtualEthernetCard", "VirtualE1000", "VirtualE1000e", "VirtualPCNet32", "VirtualVmxnet", "VirtualVmxnet2", "VirtualVmxnet3"]:
+                device_config_spec = spec.new_deviceChange()
+                device_config_spec.set_element_operation('remove')
+                device_config_spec.set_element_device(device._obj)
+                device_config_specs.append(device_config_spec)
+        # add new interfaces
+        for nic in sorted(vm_nic.iterkeys()):
+            try:
+                nictype = vm_nic[nic]['type']
+            except KeyError:
+                vsphere_client.disconnect()
+                module.fail_json(
+                    msg="Error on %s definition. type needs to be "
+                    " specified." % nic)
+            try:
+                network = vm_nic[nic]['network']
+            except KeyError:
+                vsphere_client.disconnect()
+                module.fail_json(
+                    msg="Error on %s definition. network needs to be "
+                    " specified." % nic)
+            try:
+                network_type = vm_nic[nic]['network_type']
+            except KeyError:
+                vsphere_client.disconnect()
+                module.fail_json(
+                    msg="Error on %s definition. network_type needs to be "
+                    " specified." % nic)
+            try:
+                mac_address = vm_nic[nic]['mac_address']
+            except KeyError:
+                pass
+            add_nic(module, vsphere_client, nfmor, spec, device_config_specs, nictype, network, network_type, mac_address)
+
+        # set device modification flag
+        changes['device_change'] = 'yes'
+
     if len(changes):
 
         if shutdown and vm.is_powered_on():
@@ -641,6 +700,9 @@ def reconfigure_vm(vsphere_client, vm, module, esxi, resource_pool, cluster_name
                 module.fail_json(
                     msg='Failed to shutdown vm %s: %s' % (guest, e)
                 )
+
+        if changes['device_change'] == 'yes':
+            spec.set_element_deviceChange(device_config_specs)
 
         request.set_element_spec(spec)
         ret = vsphere_client._proxy.ReconfigVM_Task(request)._returnval
