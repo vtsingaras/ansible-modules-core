@@ -942,11 +942,10 @@ def create_vm(vsphere_client, module, esxi, resource_pool, cluster_name, guest, 
                 module.fail_json(
                     msg="Error on %s definition. network_type needs to be "
                     " specified." % nic)
-            if network_type == 'standard':
-                try:
-                    mac_address = vm_nic[nic]['mac_address']
-                except KeyError:
-                    pass
+            try:
+                mac_address = vm_nic[nic]['mac_address']
+            except KeyError:
+                pass
             # Add the nic to the VM spec.
             add_nic(module, vsphere_client, nfmor, config, devices,
                     nictype, network, network_type, mac_address)
