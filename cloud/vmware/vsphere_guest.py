@@ -640,7 +640,6 @@ def reconfigure_vm(vsphere_client, vm, module, esxi, resource_pool, cluster_name
     if vm_nic:
         spec = spec_singleton(spec, request, vm)
         datacenter = esxi['datacenter']
-        esxi_hostname = esxi['hostname']
         # Datacenter managed object reference
         dclist = [k for k,
                  v in vsphere_client.get_datacenters().items() if v == datacenter]
