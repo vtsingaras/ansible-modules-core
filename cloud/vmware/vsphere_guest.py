@@ -350,7 +350,7 @@ def add_cdrom(module, s, config_target, config, devices, default_devs, type="cli
         devices.append(cd_spec)
 
 
-def add_nic(module, s, nfmor, config, devices, nic_type="vmxnet3", network_name="VM Network", network_type="standard", mac_address=""):
+def add_nic(module, s, nfmor, config, devices, nic_type="vmxnet3", network_name="VM Network", network_type="standard", mac_address=None):
     # add a NIC
     # Different network card types are: "VirtualE1000",
     # "VirtualE1000e","VirtualPCNet32", "VirtualVmxnet", "VirtualNmxnet2",
@@ -399,7 +399,7 @@ def add_nic(module, s, nfmor, config, devices, nic_type="vmxnet3", network_name=
         module.fail_json(
             msg="Error adding nic backing to vm spec. No network type of:"
             " %s" % (network_type))
-    if mac_address != "":
+    if mac_address:
         nic_ctlr.set_element_addressType("manual")
         nic_ctlr.set_element_macAddress(mac_address)
     else:
@@ -661,6 +661,7 @@ def reconfigure_vm(vsphere_client, vm, module, esxi, resource_pool, cluster_name
                 device_config_specs.append(device_config_spec)
         # add new interfaces
         for nic in sorted(vm_nic.iterkeys()):
+            mac_address = None
             try:
                 nictype = vm_nic[nic]['type']
             except KeyError:
@@ -1193,7 +1194,8 @@ def main():
         'nic1': {
             'type': basestring,
             'network': basestring,
-            'network_type': basestring
+            'network_type': basestring,
+            'mac_address': basestring
         }
     }
 
