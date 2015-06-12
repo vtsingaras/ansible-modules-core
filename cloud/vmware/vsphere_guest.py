@@ -1194,8 +1194,7 @@ def main():
         'nic1': {
             'type': basestring,
             'network': basestring,
-            'network_type': basestring,
-            'mac_address': basestring
+            'network_type': basestring
         }
     }
 
