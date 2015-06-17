@@ -652,15 +652,28 @@ def reconfigure_vm(vsphere_client, vm, module, esxi, resource_pool, cluster_name
         dcprops = VIProperty(vsphere_client, dcmor)
         # networkFolder managed object reference
         nfmor = dcprops.networkFolder._obj
-        # remove all interfaces
+        # get current interfaces
+        nictype_to_friendly = {
+            'VirtualE1000' : 'e1000', 'VirtualE1000e' : 'e1000e',
+            'VirtualPCNet32' : 'pcnet32', 'VirtualVmxnet' : 'vmxnet',
+            'VirtualVmxnet2' : 'vmxnet2', 'VirtualVmxnet3' : 'vmxnet3'
+        }
+        current_nics = []
         for device in vm.properties.config.hardware.device:
-            if device._type in ["VirtualEthernetCard", "VirtualE1000", "VirtualE1000e", "VirtualPCNet32", "VirtualVmxnet", "VirtualVmxnet2", "VirtualVmxnet3"]:
-                device_config_spec = spec.new_deviceChange()
-                device_config_spec.set_element_operation('remove')
-                device_config_spec.set_element_device(device._obj)
-                device_config_specs.append(device_config_spec)
-        # add new interfaces
+            if device._type in ['VirtualE1000', 'VirtualE1000e','VirtualPCNet32',
+                            'VirtualVmxnet', 'VirtualVmxnet2', 'VirtualVmxnet3']:
+                current_nic = {}
+                current_nic['nic_type'] = nictype_to_friendly[device._type]
+                current_nic['network'] = device.backing.deviceName
+                current_nic['network_type'] = 'standard' if device.backing._type == 'VirtualEthernetCardNetworkBackingInfo' else 'dvs'
+                current_nic['mac_address_type'] = device.addressType
+                current_nic['mac_address'] = device.macAddress
+                current_nic['device'] = device
+                current_nics.append(current_nic)
+        # parse new interfaces
+        new_nics = []
         for nic in sorted(vm_nic.iterkeys()):
+            new_nic = {}
             mac_address = None
             try:
                 nictype = vm_nic[nic]['type']
@@ -685,12 +698,49 @@ def reconfigure_vm(vsphere_client, vm, module, esxi, resource_pool, cluster_name
                     " specified." % nic)
             try:
                 mac_address = vm_nic[nic]['mac_address']
+                new_nic['mac_address_type'] = 'manual'
+                new_nic['mac_address'] = mac_address
             except KeyError:
+                new_nic['mac_address_type'] = 'generated'
+                new_nic['mac_address'] = None
                 pass
-            add_nic(module, vsphere_client, nfmor, spec, device_config_specs, nictype, network, network_type, mac_address)
-
-        # set device modification flag
-        changes['device_change'] = 'yes'
+            new_nic['nic_type'] = nictype
+            new_nic['network'] = network
+            new_nic['network_type'] = network_type
+            new_nics.append(new_nic)
+        #calculate interface changes
+        #any NICs left in current_nics will be removed
+        #any NICs left in new_nics will be added
+        def equal_dicts(d1, d2, ignore_keys):
+            d1_filtered = dict((k, v) for k,v in d1.iteritems() if k not in ignore_keys)
+            d2_filtered = dict((k, v) for k,v in d2.iteritems() if k not in ignore_keys)
+            return d1_filtered == d2_filtered
+        def new_nic_already_exists(new_nic, current_nics):
+            for current_nic in current_nics:
+                #if new_nic's mac is to be generated then it's considered to not match any existing nic
+                if new_nic['mac_address_type'] == 'generated':
+                    return None
+                else:
+                #compare nics ignoring the device key for current_nic
+                    if equal_dicts(new_nic, current_nic, ignore_keys=('device')):
+                        return current_nic
+            return None
+        for new_nic in list(new_nics):
+            current_nic = new_nic_already_exists(new_nic, current_nics)
+            if current_nic is not None:
+                new_nics.remove(new_nic)
+                current_nics.remove(current_nic)
+        if len(new_nics) or len(current_nics):
+            # set device modification flag
+            changes['device_change'] = 'yes'
+            for current_nic in current_nics:
+                device_config_spec = spec.new_deviceChange()
+                device_config_spec.set_element_operation('remove')
+                device_config_spec.set_element_device(current_nic['device']._obj)
+                device_config_specs.append(device_config_spec)
+            for new_nic in new_nics:
+                add_nic(module, vsphere_client, nfmor, spec, device_config_specs, new_nic['nic_type'],
+                        new_nic['network'], new_nic['network_type'], new_nic['mac_address'])
 
     if len(changes):
 
